@@ -156,6 +156,55 @@ class MyOperator(JsonOperator):
         return result
 ```
 
+## JSON结构分析CLI工具
+
+JSONFlow提供了一个命令行工具，用于分析JSONL文件的键结构：
+
+```bash
+# 使用JSONFlow管道分析JSONL文件的键结构
+python jsonflow_cli.py analyze input.jsonl
+
+# 使用基本方法分析JSONL文件的键结构
+python jsonflow_cli.py analyze --method basic input.jsonl
+```
+
+命令行工具将分析JSONL文件中所有JSON对象的键结构，包括嵌套字段和数据类型，并以表格形式输出：
+
+```
+键结构分析结果:
+================================================================================
+键路径                                                | 数据类型                          
+--------------------------------------------------------------------------------
+id                                                 | integer                       
+metadata                                           | object                        
+metadata.length                                    | string                        
+metadata.type                                      | string                        
+prompt                                             | string                        
+response                                           | string
+```
+
+您也可以在自己的Python代码中使用JsonStructureExtractor操作符进行JSON结构分析：
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.operators.json_ops import JsonStructureExtractor
+
+# 创建结构提取器
+structure_extractor = JsonStructureExtractor(
+    extract_types=True,
+    extract_nested=True
+)
+
+# 创建管道
+pipeline = Pipeline([structure_extractor])
+
+# 处理数据
+result = pipeline.process(json_data)
+
+# 输出结构信息
+structure_info = result["structure"]
+```
+
 ## 许可证
 
 MIT 

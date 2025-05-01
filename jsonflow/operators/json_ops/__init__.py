@@ -14,7 +14,6 @@ from jsonflow.operators.json_ops.json_field_ops import (
     JsonPathUpdater,
     JsonPathRemover,
     JsonStringOperator,
-    JsonStructureExtractor,
     JsonArrayOperator,
     JsonMerger
 )
@@ -22,4 +21,23 @@ from jsonflow.operators.json_ops.json_expr_ops import (
     JsonExpressionOperator,
     JsonFieldMapper,
     JsonTemplateOperator
-) 
+)
+from jsonflow.operators.json_ops.json_structure_extractor import JsonStructureExtractor
+
+__all__ = [
+    "TextNormalizer",
+    "JsonFilter",
+    "JsonTransformer",
+    "JsonFieldSelector",
+    "JsonPathOperator",
+    "JsonPathExtractor",
+    "JsonPathUpdater",
+    "JsonPathRemover",
+    "JsonStringOperator",
+    "JsonArrayOperator",
+    "JsonMerger",
+    "JsonExpressionOperator",
+    "JsonFieldMapper",
+    "JsonTemplateOperator",
+    "JsonStructureExtractor"
+] 
