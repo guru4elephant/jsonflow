@@ -1,0 +1,4 @@
+{"id": 1, "prompt": "  Tell me a joke  ", "metadata": {"type": "humor", "length": "short"}}
+{"id": 2, "prompt": "  What is the meaning of life?  ", "metadata": {"type": "philosophy", "length": "medium"}}
+{"id": 3, "prompt": "  How to make a chocolate cake?  ", "metadata": {"type": "cooking", "length": "long"}}
+{"id": 4, "prompt": "  Explain quantum physics  ", "metadata": {"type": "science", "length": "long"}} 
