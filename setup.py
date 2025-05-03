@@ -36,6 +36,16 @@ setup(
             "flake8",
             "pytest-cov",
         ],
+        "bos": [
+            "bce-python-sdk>=0.8.0",  # 百度对象存储SDK
+        ],
+        "all": [
+            "bce-python-sdk>=0.8.0",
+            "pytest>=6.0",
+            "black",
+            "flake8",
+            "pytest-cov",
+        ],
     },
     entry_points={
         "console_scripts": [
