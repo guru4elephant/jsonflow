@@ -12,6 +12,8 @@ JSONFlow是一个处理JSON数据的流式处理库。它可以以JSON格式的�
 - 专门用于调用大语言模型的操作符
 - 系统级操作符日志功能，方便调试和开发
 - 丰富的JSON字段处理操作符和表达式操作符
+- 支持字段透传功能，避免每个操作符重复处理相同字段
+- 支持系统字段管理，方便添加和处理ID、时间戳等系统级字段
 
 ## 安装
 
@@ -42,6 +44,102 @@ loader = JsonLoader("input.jsonl")
 saver = JsonSaver("output.jsonl")
 
 # 处理每一行JSON数据
+for json_line in loader:
+    result = pipeline.process(json_line)
+    saver.write(result)
+```
+
+## 字段透传功能
+
+JSONFlow提供了字段透传功能，允许在pipeline中设置特定字段自动透传，避免每个操作符都需要处理相同的系统字段：
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer
+from jsonflow.operators.model import ModelInvoker
+
+# 创建一个带有透传字段的管道
+pipeline = Pipeline([
+    TextNormalizer(),
+    ModelInvoker(model="gpt-3.5-turbo"),
+])
+
+# 设置需要透传的字段
+pipeline.set_passthrough_fields(['id', 'metadata'])
+
+# 处理数据
+loader = JsonLoader("input.jsonl")
+saver = JsonSaver("output.jsonl")
+
+for json_line in loader:
+    # id 和 metadata 字段会在整个处理流程中保持不变
+    result = pipeline.process(json_line)
+    saver.write(result)
+```
+
+字段透传功能确保指定的字段在整个管道处理过程中不会丢失，特别适用于需要保留ID、元数据等系统字段的场景。
+
+## 系统字段管理
+
+JSONFlow提供了系统字段管理功能，方便添加UUID、时间戳等系统级字段：
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer, IdAdder, TimestampAdder
+from jsonflow.operators.model import ModelInvoker
+from jsonflow.utils.system_field import SystemField
+
+# 使用系统字段操作符
+pipeline = Pipeline([
+    IdAdder(),  # 添加UUID作为id字段
+    TimestampAdder(),  # 添加时间戳
+    TextNormalizer(),
+    ModelInvoker(model="gpt-3.5-turbo"),
+])
+
+# 也可以直接使用SystemField工具类
+data = {"text": "示例文本"}
+data = SystemField.add_id(data)  # 添加UUID
+data = SystemField.add_timestamp(data)  # 添加时间戳
+data = SystemField.add_datetime(data)  # 添加格式化日期时间
+data = SystemField.add_custom_field(data, "source", "example")  # 添加自定义字段
+```
+
+系统字段管理支持以下操作：
+
+- `IdAdder`: 添加UUID作为ID
+- `TimestampAdder`: 添加UNIX时间戳
+- `DateTimeAdder`: 添加格式化的日期时间
+- `CustomFieldAdder`: 添加自定义字段
+- `FieldRemover`: 移除指定字段
+
+## 结合使用字段透传和系统字段
+
+以下示例展示如何结合使用字段透传和系统字段功能：
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer, IdAdder, TimestampAdder
+from jsonflow.operators.model import ModelInvoker
+
+# 创建管道
+pipeline = Pipeline([
+    IdAdder(),  # 添加UUID作为id字段
+    TimestampAdder(),  # 添加时间戳
+    TextNormalizer(),
+    ModelInvoker(model="gpt-3.5-turbo")
+])
+
+# 设置id和timestamp为透传字段，确保它们不会在后续处理中丢失
+pipeline.set_passthrough_fields(['id', 'timestamp'])
+
+# 处理数据
+loader = JsonLoader("input.jsonl")
+saver = JsonSaver("output.jsonl")
+
 for json_line in loader:
     result = pipeline.process(json_line)
     saver.write(result)
@@ -156,55 +254,85 @@ class MyOperator(JsonOperator):
         return result
 ```
 
-## JSON结构分析CLI工具
-
-JSONFlow提供了一个命令行工具，用于分析JSONL文件的键结构：
-
-```bash
-# 使用JSONFlow管道分析JSONL文件的键结构
-python jsonflow_cli.py analyze input.jsonl
-
-# 使用基本方法分析JSONL文件的键结构
-python jsonflow_cli.py analyze --method basic input.jsonl
-```
-
-命令行工具将分析JSONL文件中所有JSON对象的键结构，包括嵌套字段和数据类型，并以表格形式输出：
-
-```
-键结构分析结果:
-================================================================================
-键路径                                                | 数据类型                          
---------------------------------------------------------------------------------
-id                                                 | integer                       
-metadata                                           | object                        
-metadata.length                                    | string                        
-metadata.type                                      | string                        
-prompt                                             | string                        
-response                                           | string
-```
-
-您也可以在自己的Python代码中使用JsonStructureExtractor操作符进行JSON结构分析：
-
-```python
-from jsonflow.core import Pipeline
-from jsonflow.operators.json_ops import JsonStructureExtractor
-
-# 创建结构提取器
-structure_extractor = JsonStructureExtractor(
-    extract_types=True,
-    extract_nested=True
-)
-
-# 创建管道
-pipeline = Pipeline([structure_extractor])
-
-# 处理数据
-result = pipeline.process(json_data)
-
-# 输出结构信息
-structure_info = result["structure"]
-```
-
 ## 许可证
 
 MIT 
+
+# JSONL检查工具
+
+这个脚本用于检查JSONL文件，验证每行是否是有效的JSON，并可以选择过滤无效行，只输出有效的JSON行。
+
+## 功能特点
+
+- 检查JSONL文件中每行是否是有效的JSON
+- 提供选项过滤无效JSON行
+- 支持从标准输入读取和向标准输出写入
+- 提供详细的错误报告
+- 提供简单的统计信息
+- 尝试自动修复常见的JSON错误
+- 规范化空白字符处理
+
+## 使用方法
+
+```bash
+./check_jsonl.py [-h] [-o OUTPUT] [-r] [-v] [-c] [-n] [-f] input
+```
+
+### 参数说明
+
+- `input`: 输入JSONL文件 (使用 "-" 从标准输入读取)
+- `-o, --output OUTPUT`: 输出文件 (使用 "-" 输出到标准输出)
+- `-r, --remove-invalid`: 移除无效的JSON行
+- `-v, --verbose`: 显示详细信息
+- `-c, --count-only`: 仅显示统计信息
+- `-n, --normalize-whitespace`: 规范化空白字符（将制表符、回车等替换为空格）
+- `-f, --fix-errors`: 尝试修复简单的JSON错误
+- `-h, --help`: 显示帮助信息
+
+### 示例
+
+1. 检查JSONL文件并显示统计信息:
+
+```bash
+./check_jsonl.py data.jsonl -v
+```
+
+2. 移除无效JSON行并输出到新文件:
+
+```bash
+./check_jsonl.py data.jsonl -r -o filtered_data.jsonl
+```
+
+3. 从标准输入读取，过滤后输出到标准输出:
+
+```bash
+cat data.jsonl | ./check_jsonl.py - -r
+```
+
+4. 只显示统计信息:
+
+```bash
+./check_jsonl.py data.jsonl -c
+```
+
+5. 尝试修复JSON错误并保存结果:
+
+```bash
+./check_jsonl.py data.jsonl -f -r -o fixed_data.jsonl
+```
+
+6. 规范化空白字符并过滤:
+
+```bash
+./check_jsonl.py data.jsonl -n -r > cleaned_data.jsonl
+```
+
+## 返回值
+
+- 0: 所有行都是有效的JSON
+- 1: 存在无效的JSON行
+
+## 依赖
+
+- Python 3.6+
+- 标准库: argparse, json, sys, pathlib 
