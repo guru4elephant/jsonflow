@@ -27,7 +27,8 @@ jsonflow/
 ├── utils/
 │   ├── __init__.py
 │   ├── logger.py         # 日志工具
-│   └── config.py         # 配置工具
+│   ├── config.py         # 配置工具
+│   └── system_field.py   # 系统字段管理
 └── examples/
     ├── simple_pipeline.py
     └── concurrent_processing.py
@@ -83,19 +84,63 @@ class ModelOperator(Operator):
 class Pipeline:
     """操作符的容器，负责按顺序执行操作符"""
     
-    def __init__(self, operators=None):
+    def __init__(self, operators=None, passthrough_fields=None):
+        """
+        初始化Pipeline
+        
+        Args:
+            operators (list, optional): 操作符列表
+            passthrough_fields (list, optional): 需要透传的字段列表
+        """
         self.operators = operators or []
+        self.passthrough_fields = passthrough_fields or []
     
     def add(self, operator):
         """添加操作符到管道中"""
         self.operators.append(operator)
         return self
     
+    def set_passthrough_fields(self, fields):
+        """
+        设置需要透传的字段列表
+        
+        Args:
+            fields (list): 字段名列表
+        
+        Returns:
+            Pipeline: 返回self以支持链式调用
+        """
+        if isinstance(fields, str):
+            self.passthrough_fields = [fields]
+        else:
+            self.passthrough_fields = list(fields)
+        return self
+    
     def process(self, json_data):
-        """按顺序执行所有操作符"""
+        """
+        按顺序执行所有操作符，并处理透传字段
+        
+        Args:
+            json_data (dict): 输入的JSON数据
+            
+        Returns:
+            dict: 处理后的JSON数据
+        """
+        # 提取需要透传的字段值
+        passthrough_values = {}
+        for field in self.passthrough_fields:
+            if field in json_data:
+                passthrough_values[field] = json_data[field]
+        
+        # 按顺序执行所有操作符
         result = json_data
         for op in self.operators:
             result = op.process(result)
+        
+        # 恢复透传字段
+        for field, value in passthrough_values.items():
+            result[field] = value
+        
         return result
     
     def __iter__(self):
@@ -269,844 +314,224 @@ class JsonSaver:
                 self.write(data)
 ```
 
-### 2.6 日志工具 (utils/logger.py 和 utils/operator_utils.py)
+### 2.6 系统字段管理 (utils/system_field.py)
 
 ```python
-import logging
-import functools
-import json
-from typing import Callable, Dict, Any
+import uuid
+import time
+import datetime
 
-# logger.py
-def get_logger(name):
-    """创建或获取日志记录器"""
-    logger = logging.getLogger(name)
-    # 设置日志格式和级别
-    return logger
-
-# operator_utils.py
-def log_io(func: Callable) -> Callable:
-    """操作符输入输出日志装饰器"""
-    @functools.wraps(func)
-    def wrapper(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
-        # 检查是否需要记录日志
-        show_io = config.get("logging.show_operator_io", False)
-        
-        if show_io:
-            # 记录输入
-            logger.info(f"[{self.name}] 输入:\n{json.dumps(json_data, indent=2)}")
-        
-        # 调用原始函数
-        result = func(self, json_data)
-        
-        if show_io:
-            # 记录输出
-            logger.info(f"[{self.name}] 输出:\n{json.dumps(result, indent=2)}")
-        
-        return result
+class SystemField:
+    """系统字段管理类，用于创建和管理系统字段"""
     
-    return wrapper
-
-def enable_operator_io_logging(enable=True):
-    """启用或禁用操作符输入输出日志"""
-    config.set("logging.show_operator_io", enable)
-```
-
-### 2.7 JSON字段操作符 (operators/json_ops/json_field_ops.py)
-
-```python
-class JsonFieldSelector(JsonOperator):
-    """选择JSON字段操作符"""
-    
-    def __init__(self, fields=None, exclude_fields=None, name=None):
+    @staticmethod
+    def add_id(json_data, field_name='id', override=False):
         """
-        初始化JsonFieldSelector
+        添加UUID字段
         
         Args:
-            fields (list, optional): 需要保留的字段列表
-            exclude_fields (list, optional): 需要排除的字段列表
-            name (str, optional): 操作符名称
+            json_data (dict): 输入的JSON数据
+            field_name (str, optional): 字段名，默认为'id'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
+            
+        Returns:
+            dict: 添加了ID字段的JSON数据
         """
-        super().__init__(name, "Select JSON fields operator")
-        self.fields = fields or []
-        self.exclude_fields = exclude_fields or []
-    
-    def process(self, json_data):
-        """处理JSON数据，仅保留指定字段"""
-        if not json_data:
-            return {}
-        
-        result = {}
-        if self.fields:
-            # 包含模式：仅保留指定字段
-            for field in self.fields:
-                if field in json_data:
-                    result[field] = json_data[field]
-        else:
-            # 排除模式：排除指定字段
-            result = json_data.copy()
-            for field in self.exclude_fields:
-                if field in result:
-                    del result[field]
-        
-        return result
-
-class JsonPathOperator(JsonOperator):
-    """JSON路径操作符基类"""
-    
-    def __init__(self, name=None, description=None):
-        super().__init__(name, description or "JSON path operator")
-    
-    def _get_value_by_path(self, data, path):
-        """通过路径获取值"""
-        if not path:
-            return data
-        
-        parts = path.split('.')
-        value = data
-        
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                return None
-        
-        return value
-    
-    def _set_value_by_path(self, data, path, value):
-        """通过路径设置值"""
-        if not path:
-            return
-        
-        parts = path.split('.')
-        current = data
-        
-        for part in parts[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        
-        current[parts[-1]] = value
-```
-
-### 2.8 JSON表达式操作符 (operators/json_ops/json_expr_ops.py)
-
-```python
-class JsonExpressionOperator(JsonOperator):
-    """JSON表达式操作符"""
-    
-    def __init__(self, expressions, name=None, description=None):
-        """
-        初始化JsonExpressionOperator
-        
-        Args:
-            expressions (dict): 表达式映射，键为目标字段，值为表达式字符串或函数
-            name (str, optional): 操作符名称
-            description (str, optional): 操作符描述
-        """
-        super().__init__(name or "JsonExpressionOperator", description or "Applies expressions to JSON data")
-        self.expressions = expressions
-    
-    def process(self, json_data):
-        """处理JSON数据，应用表达式"""
-        if not json_data:
-            return {}
-        
         result = json_data.copy()
-        
-        for target_field, expression in self.expressions.items():
-            try:
-                # 处理函数表达式
-                if callable(expression):
-                    value = expression(json_data)
-                    self._set_nested_value(result, target_field, value)
-                    continue
-                
-                # 处理字符串表达式
-                value = self._evaluate_expression(expression, json_data)
-                self._set_nested_value(result, target_field, value)
-            except Exception as e:
-                # 表达式求值失败时忽略，可以选择记录错误
-                print(f"表达式求值错误(字段: {target_field}): {str(e)}")
-                continue
-        
+        if field_name not in result or override:
+            result[field_name] = str(uuid.uuid4())
         return result
     
-    def _evaluate_expression(self, expression, json_data):
-        """求值表达式"""
-        # 替换表达式中的字段引用
-        expr = self._replace_field_references(expression, json_data)
-        
-        # 创建安全的本地环境
-        safe_locals = {
-            "len": len,
-            "str": str,
-            "int": int,
-            "float": float,
-            "bool": bool,
-            "list": list,
-            "dict": dict,
-            "sum": sum,
-            "min": min,
-            "max": max,
-            # ...更多安全函数
-        }
-        
-        # 使用eval求值表达式
-        return eval(expr, {"__builtins__": {}}, safe_locals)
-    
-    def _replace_field_references(self, expression, json_data):
-        """替换表达式中的字段引用"""
-        # 查找所有字段引用，支持点号路径
-        pattern = r'\$\.[a-zA-Z0-9_.[\]]+|\$\[[\'"]([^\'"]+)[\'"]\]'
-        
-        # ...实现字段引用替换的逻辑
-        
-        return replaced_expression
-```
-
-### 2.9 配置系统 (utils/config.py)
-
-```python
-class Config:
-    """配置管理类"""
-    
-    def __init__(self, config_file=None):
+    @staticmethod
+    def add_timestamp(json_data, field_name='timestamp', override=False):
         """
-        初始化配置
+        添加时间戳字段
         
         Args:
-            config_file (str, optional): 配置文件路径
-        """
-        self.config = {}
-        
-        # 加载默认配置
-        self._load_default_config()
-        
-        # 加载配置文件
-        if config_file:
-            self._load_config_file(config_file)
-        
-        # 加载环境变量
-        self._load_env_vars()
-    
-    def _load_default_config(self):
-        """加载默认配置"""
-        self.config = {
-            "log_level": "INFO",
-            "logging": {
-                "show_operator_io": False,  # 是否显示操作符的输入和输出
-                "io_indent": 2,  # 显示输入输出时的缩进空格数
-                "truncate_length": 1000  # 截断长输入输出的长度，设为None表示不截断
-            },
-            "model": {
-                "default": "gpt-3.5-turbo",
-                "timeout": 30,
-                "retries": 3
-            },
-            "executor": {
-                "default_workers": None  # None表示使用系统默认值
-            }
-        }
-    
-    def get(self, key, default=None):
-        """获取配置值"""
-        parts = key.split('.')
-        config = self.config
-        
-        for part in parts:
-            if part not in config:
-                return default
-            config = config[part]
-        
-        return config
-    
-    def set(self, key, value):
-        """设置配置值"""
-        parts = key.split('.')
-        config = self.config
-        
-        for part in parts[:-1]:
-            if part not in config:
-                config[part] = {}
-            config = config[part]
-        
-        config[parts[-1]] = value
-```
-
-### 2.10 其他JSON操作符
-
-```python
-class JsonStringOperator(JsonOperator):
-    """JSON字符串操作符"""
-    
-    def __init__(self, field_path, operation, name=None, **operation_params):
-        """
-        初始化JsonStringOperator
-        
-        Args:
-            field_path (str): 要操作的字段路径，支持点号分隔的路径
-            operation (str or callable): 要执行的字符串操作，可以是预定义操作名称或自定义函数
-            name (str, optional): 操作符名称
-            **operation_params: 操作的附加参数
-        """
-        super().__init__(name or "JsonStringOperator", f"String operation on {field_path}")
-        self.field_path = field_path
-        self.operation = operation
-        self.operation_params = operation_params
-    
-    def process(self, json_data):
-        """处理JSON数据，对指定字段执行字符串操作"""
-        result = json_data.copy()
-        
-        # 获取字段值
-        value = self._get_value_by_path(result, self.field_path)
-        
-        # 如果值不是字符串，尝试转换
-        if value is not None and not isinstance(value, str):
-            value = str(value)
-        
-        # 应用操作
-        if value is not None:
-            if callable(self.operation):
-                # 使用自定义函数
-                new_value = self.operation(value, **self.operation_params)
-            elif self.operation == "upper":
-                new_value = value.upper()
-            elif self.operation == "lower":
-                new_value = value.lower()
-            elif self.operation == "title":
-                new_value = value.title()
-            elif self.operation == "strip":
-                new_value = value.strip()
-            elif self.operation == "replace":
-                old = self.operation_params.get("old", "")
-                new = self.operation_params.get("new", "")
-                new_value = value.replace(old, new)
-            elif self.operation == "truncate":
-                length = self.operation_params.get("length", 100)
-                suffix = self.operation_params.get("suffix", "...")
-                if len(value) > length:
-                    new_value = value[:length] + suffix
-                else:
-                    new_value = value
-            else:
-                # 未知操作，保持原值
-                new_value = value
+            json_data (dict): 输入的JSON数据
+            field_name (str, optional): 字段名，默认为'timestamp'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
             
-            # 设置新值
-            self._set_value_by_path(result, self.field_path, new_value)
-        
+        Returns:
+            dict: 添加了时间戳字段的JSON数据
+        """
+        result = json_data.copy()
+        if field_name not in result or override:
+            result[field_name] = int(time.time())
         return result
-
-
-class JsonArrayOperator(JsonOperator):
-    """JSON数组操作符"""
     
-    def __init__(self, array_path, operation, name=None, **operation_params):
+    @staticmethod
+    def add_datetime(json_data, field_name='datetime', format='%Y-%m-%d %H:%M:%S', override=False):
         """
-        初始化JsonArrayOperator
+        添加日期时间字段
         
         Args:
-            array_path (str): 数组字段的路径，支持点号分隔的路径
-            operation (str or callable): 要执行的数组操作，可以是预定义操作名称或自定义函数
-            name (str, optional): 操作符名称
-            **operation_params: 操作的附加参数
+            json_data (dict): 输入的JSON数据
+            field_name (str, optional): 字段名，默认为'datetime'
+            format (str, optional): 日期时间格式，默认为'%Y-%m-%d %H:%M:%S'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
+            
+        Returns:
+            dict: 添加了日期时间字段的JSON数据
         """
-        super().__init__(name or "JsonArrayOperator", f"Array operation on {array_path}")
-        self.array_path = array_path
-        self.operation = operation
-        self.operation_params = operation_params
-    
-    def process(self, json_data):
-        """处理JSON数据，对指定数组字段执行操作"""
         result = json_data.copy()
-        
-        # 获取数组
-        array = self._get_value_by_path(result, self.array_path)
-        
-        # 确保是数组
-        if array is None:
-            array = []
-        elif not isinstance(array, list):
-            array = [array]
-        
-        # 应用操作
-        if callable(self.operation):
-            # 使用自定义函数
-            new_array = self.operation(array, **self.operation_params)
-        elif self.operation == "filter":
-            # 过滤数组元素
-            field = self.operation_params.get("field")
-            value = self.operation_params.get("value")
-            operator = self.operation_params.get("operator", "eq")
-            
-            if field and value is not None:
-                new_array = []
-                for item in array:
-                    if isinstance(item, dict) and field in item:
-                        item_value = item[field]
-                        if operator == "eq" and item_value == value:
-                            new_array.append(item)
-                        elif operator == "neq" and item_value != value:
-                            new_array.append(item)
-                        elif operator == "gt" and item_value > value:
-                            new_array.append(item)
-                        elif operator == "gte" and item_value >= value:
-                            new_array.append(item)
-                        elif operator == "lt" and item_value < value:
-                            new_array.append(item)
-                        elif operator == "lte" and item_value <= value:
-                            new_array.append(item)
-                        elif operator == "contains" and value in item_value:
-                            new_array.append(item)
-            else:
-                new_array = array
-        elif self.operation == "map":
-            # 映射数组元素
-            field = self.operation_params.get("field")
-            if field:
-                new_array = []
-                for item in array:
-                    if isinstance(item, dict) and field in item:
-                        new_array.append(item[field])
-                    else:
-                        new_array.append(None)
-            else:
-                new_array = array
-        elif self.operation == "sort":
-            # 排序数组
-            field = self.operation_params.get("field")
-            reverse = self.operation_params.get("reverse", False)
-            
-            if field:
-                # 按字段排序
-                new_array = sorted(
-                    array,
-                    key=lambda x: x.get(field) if isinstance(x, dict) else None,
-                    reverse=reverse
-                )
-            else:
-                # 直接排序
-                new_array = sorted(array, reverse=reverse)
-        elif self.operation == "slice":
-            # 切片数组
-            start = self.operation_params.get("start", 0)
-            end = self.operation_params.get("end", None)
-            new_array = array[start:end]
-        elif self.operation == "uniq":
-            # 去重
-            try:
-                new_array = list(dict.fromkeys(array))
-            except TypeError:
-                # 如果元素不可哈希，退回到原数组
-                new_array = array
-        else:
-            # 未知操作，保持原数组
-            new_array = array
-        
-        # 设置新数组
-        self._set_value_by_path(result, self.array_path, new_array)
-        
+        if field_name not in result or override:
+            result[field_name] = datetime.datetime.now().strftime(format)
         return result
-
-
-class DebugOperator(JsonOperator):
-    """调试操作符，打印当前的JSON数据和处理信息"""
     
-    def __init__(self, name=None, label=None):
+    @staticmethod
+    def add_custom_field(json_data, field_name, value, override=False):
         """
-        初始化DebugOperator
+        添加自定义字段
         
         Args:
-            name (str, optional): 操作符名称
-            label (str, optional): 调试标签
+            json_data (dict): 输入的JSON数据
+            field_name (str): 字段名
+            value: 字段值
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
+            
+        Returns:
+            dict: 添加了自定义字段的JSON数据
         """
-        super().__init__(name or "DebugOperator", "Print debug information")
-        self.label = label or "DEBUG"
-    
-    def process(self, json_data):
-        """处理JSON数据，打印调试信息"""
-        print(f"[{self.label}] JSON Data:")
-        print(json.dumps(json_data, indent=2, ensure_ascii=False))
-        return json_data
-
-
-class MockModelOperator(ModelOperator):
-    """模拟模型操作符，用于测试和开发"""
-    
-    def __init__(self, response=None, name=None):
-        """
-        初始化MockModelOperator
-        
-        Args:
-            response (dict or callable, optional): 预定义的响应或响应生成函数
-            name (str, optional): 操作符名称
-        """
-        super().__init__(name or "MockModelOperator", "Mock model for testing")
-        self.response = response
-    
-    def process(self, json_data):
-        """处理JSON数据，返回模拟的模型响应"""
         result = json_data.copy()
+        if field_name not in result or override:
+            result[field_name] = value
+        return result
+    
+    @staticmethod
+    def remove_field(json_data, field_name):
+        """
+        移除字段
         
-        if callable(self.response):
-            # 使用函数生成响应
-            model_response = self.response(json_data)
-        elif self.response is not None:
-            # 使用预定义响应
-            model_response = self.response
-        else:
-            # 默认响应
-            model_response = {
-                "model": "mock-model",
-                "response": f"This is a mock response for: {json_data.get('text', '')}",
-                "processed_at": datetime.datetime.now().isoformat()
-            }
-        
-        # 将模型响应合并到结果中
-        if isinstance(model_response, dict):
-            result.update(model_response)
-        else:
-            result["model_response"] = model_response
-        
+        Args:
+            json_data (dict): 输入的JSON数据
+            field_name (str): 字段名
+            
+        Returns:
+            dict: 移除了指定字段的JSON数据
+        """
+        result = json_data.copy()
+        if field_name in result:
+            del result[field_name]
         return result
 ```
 
-### 2.11 JSON模板操作符
-
-```python
-class JsonTemplateOperator(JsonOperator):
-    """JSON模板操作符"""
-    
-    def __init__(self, templates, name=None, description=None):
-        """
-        初始化JsonTemplateOperator
-        
-        Args:
-            templates (dict): 模板映射，键为目标字段，值为模板字符串
-                模板字符串中可以使用 {field.path} 格式引用JSON字段
-            name (str, optional): 操作符名称
-            description (str, optional): 操作符描述
-        """
-        super().__init__(
-            name or "JsonTemplateOperator",
-            description or "Applies string templates to JSON data"
-        )
-        self.templates = templates
-    
-    def process(self, json_data):
-        """处理JSON数据，应用模板"""
-        if not json_data:
-            return {}
-        
-        result = json_data.copy()
-        
-        for target_field, template in self.templates.items():
-            try:
-                # 解析模板并替换字段引用
-                value = self._render_template(template, json_data)
-                
-                # 设置目标字段
-                self._set_nested_value(result, target_field, value)
-            except Exception as e:
-                # 模板渲染失败时忽略
-                print(f"模板渲染错误(字段: {target_field}): {str(e)}")
-                continue
-        
-        return result
-    
-    def _render_template(self, template, json_data):
-        """渲染模板"""
-        # 查找所有字段引用
-        pattern = r'\{([^{}|]+)(?:\|([^{}]+))?\}'
-        
-        def replace_field(match):
-            field_path = match.group(1).strip()
-            modifiers = match.group(2).strip() if match.group(2) else None
-            
-            # 获取字段值
-            value = self._get_by_path(json_data, field_path)
-            
-            # 应用修饰符
-            if modifiers:
-                for mod in modifiers.split('|'):
-                    if ':' in mod:
-                        mod_name, mod_arg = mod.split(':', 1)
-                    else:
-                        mod_name, mod_arg = mod, None
-                    
-                    # 应用各种修饰符
-                    if mod_name == 'upper' and isinstance(value, str):
-                        value = value.upper()
-                    elif mod_name == 'lower' and isinstance(value, str):
-                        value = value.lower()
-                    # ... 更多修饰符
-            
-            return str(value) if value is not None else ""
-        
-        return re.sub(pattern, replace_field, template)
-    
-    def _get_by_path(self, data, path):
-        """通过路径获取值"""
-        if not path:
-            return data
-        
-        parts = path.split('.')
-        value = data
-        
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                return None
-        
-        return value
-    
-    def _set_nested_value(self, data, path, value):
-        """设置嵌套字段的值"""
-        if '.' not in path:
-            data[path] = value
-            return
-        
-        parts = path.split('.')
-        current = data
-        
-        for part in parts[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        
-        current[parts[-1]] = value
-```
-
-## 3. 操作符实现
-
-### 3.1 TextNormalizer (operators/json_ops/text_normalizer.py)
+### 2.7 系统字段操作符 (operators/json_ops/system_field_ops.py)
 
 ```python
 from jsonflow.core import JsonOperator
+from jsonflow.utils.system_field import SystemField
 
-class TextNormalizer(JsonOperator):
-    """文本规范化操作符"""
+class IdAdder(JsonOperator):
+    """添加ID系统字段的操作符"""
     
-    def __init__(self, text_fields=None, name=None, description=None):
+    def __init__(self, field_name='id', override=False, name=None):
         """
-        初始化TextNormalizer
+        初始化IdAdder
         
         Args:
-            text_fields (list, optional): 要规范化的文本字段列表，为None时处理所有字符串字段
+            field_name (str, optional): 字段名，默认为'id'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
             name (str, optional): 操作符名称
-            description (str, optional): 操作符描述
         """
-        super().__init__(
-            name,
-            description or "Normalizes text fields in JSON data"
-        )
-        self.text_fields = text_fields
+        super().__init__(name, f"Add {field_name} field operator")
+        self.field_name = field_name
+        self.override = override
     
     def process(self, json_data):
-        """处理JSON数据，规范化文本字段"""
-        if not json_data:
-            return json_data
-        
-        result = json_data.copy()
-        self._normalize_fields(result)
-        return result
-    
-    def _normalize_fields(self, data, path=""):
-        """递归处理字段"""
-        if isinstance(data, dict):
-            for key, value in list(data.items()):
-                current_path = f"{path}.{key}" if path else key
-                if isinstance(value, str):
-                    if self.text_fields is None or current_path in self.text_fields:
-                        data[key] = self._normalize_text(value)
-                elif isinstance(value, (dict, list)):
-                    self._normalize_fields(value, current_path)
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                if isinstance(item, str):
-                    if self.text_fields is None:
-                        data[i] = self._normalize_text(item)
-                elif isinstance(item, (dict, list)):
-                    self._normalize_fields(item, path)
-    
-    def _normalize_text(self, text):
-        """执行文本规范化"""
-        # 基本的文本规范化规则
-        return text.strip()
-```
+        """处理JSON数据，添加ID字段"""
+        return SystemField.add_id(json_data, self.field_name, self.override)
 
-### 3.2 ModelInvoker (operators/model/model_invoker.py)
 
-```python
-from jsonflow.core import ModelOperator
-
-class ModelInvoker(ModelOperator):
-    """大语言模型调用操作符"""
+class TimestampAdder(JsonOperator):
+    """添加时间戳系统字段的操作符"""
     
-    def __init__(self, model, prompt_field="prompt", response_field="response", name=None, description=None, **model_params):
+    def __init__(self, field_name='timestamp', override=False, name=None):
         """
-        初始化ModelInvoker
+        初始化TimestampAdder
         
         Args:
-            model (str): 模型名称
-            prompt_field (str): 输入字段名
-            response_field (str): 输出字段名
+            field_name (str, optional): 字段名，默认为'timestamp'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
             name (str, optional): 操作符名称
-            description (str, optional): 操作符描述
-            **model_params: 模型参数
         """
-        super().__init__(
-            name,
-            description or f"Invokes {model} model",
-            **model_params
-        )
-        self.model = model
-        self.prompt_field = prompt_field
-        self.response_field = response_field
+        super().__init__(name, f"Add {field_name} field operator")
+        self.field_name = field_name
+        self.override = override
     
     def process(self, json_data):
-        """处理JSON数据，调用模型"""
-        if not json_data or self.prompt_field not in json_data:
-            return json_data
-        
-        result = json_data.copy()
-        prompt = result[self.prompt_field]
-        
-        # 这里是模型调用的实现，具体代码将在完整实现时提供
-        response = self._invoke_model(prompt)
-        
-        result[self.response_field] = response
-        return result
+        """处理JSON数据，添加时间戳字段"""
+        return SystemField.add_timestamp(json_data, self.field_name, self.override)
+
+
+class DateTimeAdder(JsonOperator):
+    """添加日期时间系统字段的操作符"""
     
-    def _invoke_model(self, prompt):
-        """调用模型的具体实现"""
-        # 在实际实现中，这里会连接到各种LLM API
-        # 例如OpenAI, Anthropic, HuggingFace等
-        # 示例实现将在完整代码中提供
-        return f"Model response to: {prompt}"
-```
-
-## 4. 工具实现
-
-### 4.1 Logger (utils/logger.py)
-
-```python
-import logging
-import sys
-
-def get_logger(name, level=None):
-    """获取配置好的logger实例"""
-    logger = logging.getLogger(name)
-    
-    # 设置日志级别
-    level = level or logging.INFO
-    logger.setLevel(level)
-    
-    # 添加控制台处理器
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stderr)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-    
-    return logger
-```
-
-### 4.2 Config (utils/config.py)
-
-```python
-import os
-import json
-
-class Config:
-    """配置管理类"""
-    
-    def __init__(self, config_file=None):
+    def __init__(self, field_name='datetime', format='%Y-%m-%d %H:%M:%S', override=False, name=None):
         """
-        初始化配置
+        初始化DateTimeAdder
         
         Args:
-            config_file (str, optional): 配置文件路径
+            field_name (str, optional): 字段名，默认为'datetime'
+            format (str, optional): 日期时间格式，默认为'%Y-%m-%d %H:%M:%S'
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
+            name (str, optional): 操作符名称
         """
-        self.config = {}
-        
-        # 加载默认配置
-        self._load_default_config()
-        
-        # 加载配置文件
-        if config_file:
-            self._load_config_file(config_file)
-        
-        # 加载环境变量
-        self._load_env_vars()
+        super().__init__(name, f"Add {field_name} field operator")
+        self.field_name = field_name
+        self.format = format
+        self.override = override
     
-    def _load_default_config(self):
-        """加载默认配置"""
-        self.config = {
-            "log_level": "INFO",
-            "model": {
-                "default": "gpt-3.5-turbo",
-                "timeout": 30,
-                "retries": 3
-            },
-            "executor": {
-                "default_workers": None  # None表示使用系统默认值
-            }
-        }
+    def process(self, json_data):
+        """处理JSON数据，添加日期时间字段"""
+        return SystemField.add_datetime(json_data, self.field_name, self.format, self.override)
+
+
+class CustomFieldAdder(JsonOperator):
+    """添加自定义系统字段的操作符"""
     
-    def _load_config_file(self, config_file):
-        """从文件加载配置"""
-        try:
-            with open(config_file, 'r') as f:
-                file_config = json.load(f)
-                self._merge_config(file_config)
-        except (IOError, json.JSONDecodeError) as e:
-            print(f"Error loading config file: {e}", file=sys.stderr)
+    def __init__(self, field_name, value, override=False, name=None):
+        """
+        初始化CustomFieldAdder
+        
+        Args:
+            field_name (str): 字段名
+            value: 字段值
+            override (bool, optional): 是否覆盖已存在的字段，默认为False
+            name (str, optional): 操作符名称
+        """
+        super().__init__(name, f"Add {field_name} field operator")
+        self.field_name = field_name
+        self.value = value
+        self.override = override
     
-    def _load_env_vars(self):
-        """从环境变量加载配置"""
-        # 示例: JSONFLOW_LOG_LEVEL 会覆盖 config["log_level"]
-        if "JSONFLOW_LOG_LEVEL" in os.environ:
-            self.config["log_level"] = os.environ["JSONFLOW_LOG_LEVEL"]
-        
-        # 示例: JSONFLOW_MODEL_DEFAULT 会覆盖 config["model"]["default"]
-        if "JSONFLOW_MODEL_DEFAULT" in os.environ:
-            self.config["model"]["default"] = os.environ["JSONFLOW_MODEL_DEFAULT"]
+    def process(self, json_data):
+        """处理JSON数据，添加自定义字段"""
+        return SystemField.add_custom_field(json_data, self.field_name, self.value, self.override)
+
+
+class FieldRemover(JsonOperator):
+    """移除字段的操作符"""
     
-    def _merge_config(self, new_config, base_config=None, path=None):
-        """递归合并配置"""
-        if base_config is None:
-            base_config = self.config
+    def __init__(self, field_name, name=None):
+        """
+        初始化FieldRemover
         
-        path = path or []
-        
-        for key, value in new_config.items():
-            current_path = path + [key]
-            
-            if key in base_config and isinstance(base_config[key], dict) and isinstance(value, dict):
-                self._merge_config(value, base_config[key], current_path)
-            else:
-                base_config[key] = value
+        Args:
+            field_name (str): 字段名
+            name (str, optional): 操作符名称
+        """
+        super().__init__(name, f"Remove {field_name} field operator")
+        self.field_name = field_name
     
-    def get(self, key, default=None):
-        """获取配置值"""
-        parts = key.split('.')
-        config = self.config
-        
-        for part in parts:
-            if part not in config:
-                return default
-            config = config[part]
-        
-        return config
+    def process(self, json_data):
+        """处理JSON数据，移除指定字段"""
+        return SystemField.remove_field(json_data, self.field_name)
 ```
 
 ## 5. 示例实现
 
-### 5.1 简单管道 (examples/simple_pipeline.py)
+### 5.1 透传字段示例 (examples/passthrough_fields_example.py)
 
 ```python
 from jsonflow.core import Pipeline
@@ -1114,9 +539,52 @@ from jsonflow.io import JsonLoader, JsonSaver
 from jsonflow.operators.json_ops import TextNormalizer
 from jsonflow.operators.model import ModelInvoker
 
-def run_simple_pipeline():
-    # 创建一个简单管道
+def run_passthrough_example():
+    """演示字段透传功能"""
+    
+    # 创建一个带有透传字段的管道
     pipeline = Pipeline([
+        TextNormalizer(),
+        ModelInvoker(model="gpt-3.5-turbo"),
+    ])
+    
+    # 设置需要透传的字段
+    pipeline.set_passthrough_fields(['id', 'metadata'])
+    
+    # 从文件加载JSON数据
+    loader = JsonLoader("input.jsonl")
+    
+    # 保存处理结果
+    saver = JsonSaver("output.jsonl")
+    
+    # 处理每一行JSON数据
+    for json_line in loader:
+        result = pipeline.process(json_line)
+        saver.write(result)
+        
+    print("处理完成，透传字段'id'和'metadata'已保留")
+
+if __name__ == "__main__":
+    run_passthrough_example()
+```
+
+### 5.2 系统字段示例 (examples/system_fields_example.py)
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer
+from jsonflow.operators.json_ops.system_field_ops import IdAdder, TimestampAdder
+from jsonflow.operators.model import ModelInvoker
+from jsonflow.utils.system_field import SystemField
+
+def run_system_fields_example():
+    """演示系统字段功能"""
+    
+    # 创建一个包含系统字段操作符的管道
+    pipeline = Pipeline([
+        IdAdder(),  # 添加UUID作为id字段
+        TimestampAdder(),  # 添加时间戳
         TextNormalizer(),
         ModelInvoker(model="gpt-3.5-turbo"),
     ])
@@ -1129,73 +597,194 @@ def run_simple_pipeline():
     
     # 处理每一行JSON数据
     for json_line in loader:
+        # 直接使用SystemField工具类添加自定义字段
+        json_line = SystemField.add_custom_field(json_line, 'source', 'example')
+        
+        # 通过管道处理数据
         result = pipeline.process(json_line)
         saver.write(result)
+        
+    print("处理完成，已添加系统字段'id'、'timestamp'和'source'")
 
 if __name__ == "__main__":
-    run_simple_pipeline()
-```
-
-### 5.2 并发处理 (examples/concurrent_processing.py)
-
-```python
-from jsonflow.core import Pipeline
-from jsonflow.core import MultiThreadExecutor
-from jsonflow.io import JsonLoader, JsonSaver
-from jsonflow.operators.json_ops import TextNormalizer
-from jsonflow.operators.model import ModelInvoker
-
-def run_concurrent_pipeline():
-    # 创建一个管道
-    pipeline = Pipeline([
-        TextNormalizer(),
-        ModelInvoker(model="gpt-3.5-turbo"),
-    ])
-    
-    # 创建一个多线程执行器
-    executor = MultiThreadExecutor(pipeline, max_workers=4)
-    
-    # 从文件加载所有JSON数据
-    loader = JsonLoader("input.jsonl")
-    json_data_list = loader.load()
-    
-    # 并发处理所有数据
-    results = executor.execute_all(json_data_list)
-    
-    # 保存处理结果
-    saver = JsonSaver("output.jsonl")
-    saver.write_all(results)
-
-if __name__ == "__main__":
-    run_concurrent_pipeline()
+    run_system_fields_example()
 ```
 
 ## 6. 单元测试设计
 
-单元测试将覆盖以下几个方面：
+### 6.1 透传字段测试 (tests/test_passthrough_fields.py)
 
-1. 核心组件测试
-   - Operator基类测试
-   - Pipeline测试
-   - 各类Executor测试
+```python
+import unittest
+from jsonflow.core import Pipeline
+from jsonflow.operators.json_ops import TextNormalizer
 
-2. IO组件测试
-   - JsonLoader测试
-   - JsonSaver测试
+class MockOperator:
+    """用于测试的模拟操作符"""
+    def process(self, json_data):
+        # 简单返回一个新对象，不保留原有字段
+        return {"result": "processed"}
 
-3. 操作符测试
-   - TextNormalizer测试
-   - ModelInvoker测试
+class PassthroughFieldsTest(unittest.TestCase):
 
-4. 集成测试
-   - 简单管道测试
-   - 并发处理测试
+    def test_passthrough_single_field(self):
+        """测试单个字段透传"""
+        pipeline = Pipeline([MockOperator()])
+        pipeline.set_passthrough_fields(['id'])
+        
+        input_data = {"id": "12345", "text": "test data"}
+        result = pipeline.process(input_data)
+        
+        self.assertEqual(result["id"], "12345")
+        self.assertEqual(result["result"], "processed")
+        self.assertNotIn("text", result)
+    
+    def test_passthrough_multiple_fields(self):
+        """测试多个字段透传"""
+        pipeline = Pipeline([MockOperator()])
+        pipeline.set_passthrough_fields(['id', 'metadata'])
+        
+        input_data = {"id": "12345", "metadata": {"source": "test"}, "text": "test data"}
+        result = pipeline.process(input_data)
+        
+        self.assertEqual(result["id"], "12345")
+        self.assertEqual(result["metadata"]["source"], "test")
+        self.assertEqual(result["result"], "processed")
+        self.assertNotIn("text", result)
+    
+    def test_passthrough_nonexistent_field(self):
+        """测试不存在的字段透传"""
+        pipeline = Pipeline([MockOperator()])
+        pipeline.set_passthrough_fields(['id', 'nonexistent'])
+        
+        input_data = {"id": "12345", "text": "test data"}
+        result = pipeline.process(input_data)
+        
+        self.assertEqual(result["id"], "12345")
+        self.assertEqual(result["result"], "processed")
+        self.assertNotIn("nonexistent", result)
+        self.assertNotIn("text", result)
+    
+    def test_passthrough_with_real_operator(self):
+        """测试与真实操作符的集成"""
+        pipeline = Pipeline([TextNormalizer()])
+        pipeline.set_passthrough_fields(['id'])
+        
+        input_data = {"id": "12345", "text": "TEST DATA"}
+        result = pipeline.process(input_data)
+        
+        self.assertEqual(result["id"], "12345")
+        self.assertEqual(result["text"], "test data")
 
-具体的测试代码将在实现过程中提供。
+if __name__ == '__main__':
+    unittest.main()
+```
+
+### 6.2 系统字段测试 (tests/test_system_fields.py)
+
+```python
+import unittest
+import re
+from jsonflow.utils.system_field import SystemField
+from jsonflow.operators.json_ops.system_field_ops import IdAdder, TimestampAdder, DateTimeAdder, CustomFieldAdder, FieldRemover
+
+class SystemFieldTest(unittest.TestCase):
+
+    def test_add_id(self):
+        """测试添加ID字段"""
+        data = {"text": "test data"}
+        result = SystemField.add_id(data)
+        
+        self.assertIn("id", result)
+        self.assertIsInstance(result["id"], str)
+        # 验证格式为UUID
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        self.assertTrue(re.match(uuid_pattern, result["id"]))
+    
+    def test_add_timestamp(self):
+        """测试添加时间戳字段"""
+        data = {"text": "test data"}
+        result = SystemField.add_timestamp(data)
+        
+        self.assertIn("timestamp", result)
+        self.assertIsInstance(result["timestamp"], int)
+    
+    def test_add_datetime(self):
+        """测试添加日期时间字段"""
+        data = {"text": "test data"}
+        result = SystemField.add_datetime(data)
+        
+        self.assertIn("datetime", result)
+        self.assertIsInstance(result["datetime"], str)
+        # 验证格式为日期时间
+        datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+        self.assertTrue(re.match(datetime_pattern, result["datetime"]))
+    
+    def test_add_custom_field(self):
+        """测试添加自定义字段"""
+        data = {"text": "test data"}
+        result = SystemField.add_custom_field(data, "source", "test")
+        
+        self.assertIn("source", result)
+        self.assertEqual(result["source"], "test")
+    
+    def test_remove_field(self):
+        """测试移除字段"""
+        data = {"id": "12345", "text": "test data"}
+        result = SystemField.remove_field(data, "id")
+        
+        self.assertNotIn("id", result)
+        self.assertIn("text", result)
+    
+    def test_id_adder_operator(self):
+        """测试ID添加操作符"""
+        operator = IdAdder()
+        data = {"text": "test data"}
+        result = operator.process(data)
+        
+        self.assertIn("id", result)
+    
+    def test_timestamp_adder_operator(self):
+        """测试时间戳添加操作符"""
+        operator = TimestampAdder()
+        data = {"text": "test data"}
+        result = operator.process(data)
+        
+        self.assertIn("timestamp", result)
+    
+    def test_datetime_adder_operator(self):
+        """测试日期时间添加操作符"""
+        operator = DateTimeAdder()
+        data = {"text": "test data"}
+        result = operator.process(data)
+        
+        self.assertIn("datetime", result)
+    
+    def test_custom_field_adder_operator(self):
+        """测试自定义字段添加操作符"""
+        operator = CustomFieldAdder("source", "test")
+        data = {"text": "test data"}
+        result = operator.process(data)
+        
+        self.assertIn("source", result)
+        self.assertEqual(result["source"], "test")
+    
+    def test_field_remover_operator(self):
+        """测试字段移除操作符"""
+        operator = FieldRemover("id")
+        data = {"id": "12345", "text": "test data"}
+        result = operator.process(data)
+        
+        self.assertNotIn("id", result)
+        self.assertIn("text", result)
+
+if __name__ == '__main__':
+    unittest.main()
+```
 
 ## 3. 使用示例
 
-### 3.1 基本使用
+### 3.1 透传字段示例
 
 ```python
 from jsonflow.core import Pipeline
@@ -1203,11 +792,12 @@ from jsonflow.io import JsonLoader, JsonSaver
 from jsonflow.operators.json_ops import TextNormalizer
 from jsonflow.operators.model import ModelInvoker
 
-# 创建一个简单管道
+# 创建一个Pipeline并设置透传字段
 pipeline = Pipeline([
     TextNormalizer(),
-    ModelInvoker(model="gpt-3.5-turbo"),
+    ModelInvoker(model="gpt-3.5-turbo")
 ])
+pipeline.set_passthrough_fields(['id', 'metadata'])
 
 # 从文件加载JSON数据
 loader = JsonLoader("input.jsonl")
@@ -1221,72 +811,65 @@ for json_line in loader:
     saver.write(result)
 ```
 
-### 3.2 表达式操作示例
+### 3.2 系统字段示例
 
 ```python
 from jsonflow.core import Pipeline
-from jsonflow.operators.json_ops import JsonExpressionOperator
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer
+from jsonflow.operators.json_ops.system_field_ops import IdAdder, TimestampAdder
+from jsonflow.operators.model import ModelInvoker
+from jsonflow.utils.system_field import SystemField
 
-# 创建表达式操作符
-expr_op = JsonExpressionOperator({
-    # 使用Lambda函数计算总金额
-    "total_amount": lambda d: sum(order["price"] * order["quantity"] for order in d["orders"]),
-    
-    # 提取字段并格式化
-    "summary": lambda d: f"{d['user']['name']}的订单总金额为¥{sum(o['price'] * o['quantity'] for o in d['orders']):.2f}",
-    
-    # 创建嵌套字段
-    "customer.full_name": lambda d: f"{d['user']['first_name']} {d['user']['last_name']}",
-    
-    # 数组处理
-    "product_names": lambda d: [item["name"] for item in d["items"]]
-})
-
-# 创建数据
-data = {
-    "user": {"name": "张三", "first_name": "张", "last_name": "三"},
-    "orders": [
-        {"id": "1", "product": "手机", "price": 5999, "quantity": 1},
-        {"id": "2", "product": "耳机", "price": 999, "quantity": 2}
-    ],
-    "items": [
-        {"id": "1", "name": "iPhone"},
-        {"id": "2", "name": "AirPods"}
-    ]
-}
-
-# 处理数据
-result = expr_op.process(data)
-print(result["total_amount"])  # 输出: 7997
-print(result["summary"])       # 输出: 张三的订单总金额为¥7997.00
-print(result["product_names"]) # 输出: ['iPhone', 'AirPods']
-```
-
-### 3.3 带操作符日志的使用示例
-
-```python
-from jsonflow.core import Pipeline
-from jsonflow.operators.json_ops import TextNormalizer, JsonExpressionOperator
-from jsonflow.utils import enable_operator_io_logging, get_logger
-
-# 获取日志记录器
-logger = get_logger("example")
-
-# 启用操作符输入输出日志
-enable_operator_io_logging(True)
-
-# 创建并运行管道
+# 创建一个包含系统字段操作符的管道
 pipeline = Pipeline([
+    IdAdder(),  # 添加UUID作为id字段
+    TimestampAdder(),  # 添加时间戳
     TextNormalizer(),
-    JsonExpressionOperator({
-        "processed_text": lambda d: f"处理后的文本: {d.get('text', '')}"
-    })
+    ModelInvoker(model="gpt-3.5-turbo")
 ])
 
-# 处理数据
-result = pipeline.process({"text": "示例文本"})
-logger.info(f"处理结果: {result}")
+# 从文件加载JSON数据
+loader = JsonLoader("input.jsonl")
 
-# 禁用操作符日志
-enable_operator_io_logging(False)
-``` 
+# 保存处理结果
+saver = JsonSaver("output.jsonl")
+
+# 处理每一行JSON数据并添加自定义系统字段
+for json_line in loader:
+    # 直接使用SystemField工具类添加自定义字段
+    json_line = SystemField.add_custom_field(json_line, 'source', 'example')
+    
+    # 通过管道处理数据
+    result = pipeline.process(json_line)
+    saver.write(result)
+```
+
+### 3.3 结合透传字段与系统字段
+
+```python
+from jsonflow.core import Pipeline
+from jsonflow.io import JsonLoader, JsonSaver
+from jsonflow.operators.json_ops import TextNormalizer
+from jsonflow.operators.json_ops.system_field_ops import IdAdder, TimestampAdder
+from jsonflow.operators.model import ModelInvoker
+
+# 创建管道
+pipeline = Pipeline([
+    IdAdder(),  # 添加UUID作为id字段
+    TimestampAdder(),  # 添加时间戳
+    TextNormalizer(),
+    ModelInvoker(model="gpt-3.5-turbo")
+])
+
+# 设置id和timestamp为透传字段，确保它们不会在后续处理中丢失
+pipeline.set_passthrough_fields(['id', 'timestamp'])
+
+# 处理数据
+loader = JsonLoader("input.jsonl")
+saver = JsonSaver("output.jsonl")
+
+for json_line in loader:
+    result = pipeline.process(json_line)
+    saver.write(result)
+```
