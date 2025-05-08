@@ -27,6 +27,7 @@ class ModelInvoker(ModelOperator):
                  temperature: float = 0.7,
                  name: Optional[str] = None, 
                  description: Optional[str] = None,
+                 openai_params: Optional[Dict[str, Any]] = None,
                  **model_params):
         """
         初始化ModelInvoker
@@ -41,6 +42,7 @@ class ModelInvoker(ModelOperator):
             temperature (float): 采样温度，值越高结果越多样，值越低结果越确定
             name (str, optional): 操作符名称
             description (str, optional): 操作符描述
+            openai_params (dict, optional): OpenAI客户端的额外参数，如base_url等
             **model_params: 其他模型参数
         """
         super().__init__(
@@ -55,6 +57,7 @@ class ModelInvoker(ModelOperator):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.openai_params = openai_params or {}
     
     def process(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -83,8 +86,7 @@ class ModelInvoker(ModelOperator):
         """
         调用模型的具体实现
         
-        这个示例方法只是返回一个模拟的响应。在实际应用中，这里会连接到
-        适当的API，如OpenAI, Anthropic, HuggingFace等。
+        根据模型名称调用适当的API，包括OpenAI和Claude模型。
         
         Args:
             prompt (str): 发送给模型的提示文本
@@ -92,14 +94,14 @@ class ModelInvoker(ModelOperator):
         Returns:
             str: 模型的响应文本
         """
-        # 这里是模型调用的示例实现
-        # 在实际应用中，会替换为对应模型API的调用
         try:
-            if self.model.startswith("gpt"):
+            # 检查模型名称
+            if self.model.startswith("gpt") or self.model.startswith("claude"):
+                # 对GPT和Claude模型使用OpenAI接口调用
                 return self._invoke_openai(prompt)
             else:
                 # 如果不支持该模型，返回一个默认响应
-                return f"Model response to: {prompt[:50]}..."
+                return f"Model response to: {prompt[:50]}... (Unsupported model: {self.model})"
         except Exception as e:
             # 在实际应用中，可能需要更复杂的错误处理
             print(f"Error invoking model: {e}")
@@ -107,9 +109,7 @@ class ModelInvoker(ModelOperator):
     
     def _invoke_openai(self, prompt: str) -> str:
         """
-        调用OpenAI模型
-        
-        注意：这是一个示例方法，在实际应用中需要安装openai包并正确配置API密钥。
+        调用OpenAI兼容接口的模型（包括GPT和Claude）
         
         Args:
             prompt (str): 发送给模型的提示文本
@@ -126,8 +126,11 @@ class ModelInvoker(ModelOperator):
         except ImportError:
             raise ImportError("OpenAI package is not installed. Please install it with 'pip install openai'.")
         
-        # 设置API密钥
-        client = openai.OpenAI(api_key=self.api_key)
+        # 设置API客户端
+        client_params = {"api_key": self.api_key}
+        # 添加额外的参数，例如base_url
+        client_params.update(self.openai_params)
+        client = openai.OpenAI(**client_params)
         
         # 构建消息
         messages = []
@@ -145,7 +148,7 @@ class ModelInvoker(ModelOperator):
             )
             return response.choices[0].message.content
         except Exception as e:
-            raise Exception(f"OpenAI API call failed: {str(e)}")
+            raise Exception(f"API call failed: {str(e)}")
     
     @classmethod
     def with_system_prompt(cls, model: str, system_prompt: str, **kwargs) -> 'ModelInvoker':
