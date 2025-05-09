@@ -1,0 +1,7 @@
+# Optional requirements for extended functionality
+
+# Direct Anthropic API support
+anthropic>=0.15.0
+
+# Baidu Object Storage (BOS) support
+bce-python-sdk>=0.8.0 
