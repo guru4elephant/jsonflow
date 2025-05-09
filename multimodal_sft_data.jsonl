@@ -1,0 +1,3 @@
+{"id": 0, "image": "images/72cf1cf07cd69f79b9c9ef0eadf32f5e.jpg", "conversations": [{"from": "human", "value": "<image>\n图片中显示了什么?"}, {"from": "gpt", "value": "无法解析模型响应"}]}
+{"id": 0, "image": "images/72cf1cf07cd69f79b9c9ef0eadf32f5e.jpg", "conversations": [{"from": "human", "value": "<image>\n这张图片中的蛋糕是什么口味的?"}, {"from": "gpt", "value": "这张图片展示的是一个巧克力蛋糕，顶部覆盖着巧克力糖霜或巧克力酱。蛋糕呈深棕色，质地看起来非常湿润松软，是典型的巧克力蛋糕特征。"}]}
+{"id": 0, "image": "images/72cf1cf07cd69f79b9c9ef0eadf32f5e.jpg", "conversations": [{"from": "human", "value": "<image>\n图片中最高的年龄段用户占比是多少？"}, {"from": "gpt", "value": "根据图表，16-25岁年龄段用户占比最高，为50.00%。"}]}

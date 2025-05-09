@@ -1,6 +1,0 @@
-# Core requirements
-openai>=1.0.0
-
-# Optional requirements
-# Uncomment if you need direct Anthropic API support (not needed for OpenAI-compatible endpoints)
-# anthropic>=0.15.0 

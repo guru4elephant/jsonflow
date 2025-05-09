@@ -12,25 +12,22 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="jsonflow",
-    version="0.1.1",
+    version="0.1.0",
     author="JSONFlow Contributors",
     author_email="example@example.com",
     description="A library for processing JSON data with operators and pipelines",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/guru4elephant/jsonflow",
+    url="https://github.com/jsonflow-org/jsonflow",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers",
-        "Topic :: Software Development :: Libraries :: Python Modules",
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.6",
     install_requires=[
-        "openai>=1.0.0",
+        "openai>=0.27.0",  # 可选，仅用于ModelInvoker示例
     ],
     extras_require={
         "dev": [
@@ -38,11 +35,9 @@ setup(
             "black",
             "flake8",
             "pytest-cov",
-            "twine",
-            "build",
         ],
         "bos": [
-            "bce-python-sdk>=0.8.0",
+            "bce-python-sdk>=0.8.0",  # 百度对象存储SDK
         ],
         "all": [
             "bce-python-sdk>=0.8.0",
@@ -50,8 +45,6 @@ setup(
             "black",
             "flake8",
             "pytest-cov",
-            "twine",
-            "build",
         ],
     },
     entry_points={

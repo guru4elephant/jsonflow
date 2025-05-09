@@ -207,7 +207,7 @@ class MessageConstructor(JsonOperator):
         
         # 默认提示模板
         self.prompt_template = prompt_template or """
-        请基于以下图片生成一个高质量的问答对，可用于多模态大模型的训练。
+        请基于以下图片生成多个高质量的问答对，可用于多模态大模型的训练。
         
         要求：
         1. 问题应是关于图片内容的开放性或具体细节的提问
@@ -215,11 +215,9 @@ class MessageConstructor(JsonOperator):
         3. 问题应该让模型需要理解图片才能回答
         4. 避免生成需要外部知识才能回答的问题
         
-        按照以下JSON格式返回一个问答对：
-        {
-            "question": "图片中的问题...",
-            "answer": "对应的答案..."
-        }
+        按照以下JSON格式返回问答对：
+        {"question": "图片中的问题...", "answer": "对应的答案..."}
+        {"question": "second question", "answer": "second answer"}
         
         只返回JSON内容，不要有其他任何文字。
         """
@@ -295,6 +293,7 @@ class ResponseParser(JsonOperator):
             处理后的JSON数据
         """
         result = json_data.copy()
+        result[self.output_field] = []
         
         # 检查输入字段
         if self.response_field not in result:
@@ -304,8 +303,9 @@ class ResponseParser(JsonOperator):
         
         try:
             # 尝试直接解析为JSON
-            qa_data = json.loads(response_text)
-            result[self.output_field] = qa_data
+            for line in response_text.split("\n"):
+                qa_data = json.loads(line)
+                result[self.output_field].append(qa_data)
             return result
         except json.JSONDecodeError:
             # 如果解析失败，尝试从文本中提取JSON部分
@@ -320,10 +320,8 @@ class ResponseParser(JsonOperator):
                     pass
         
         # 如果所有解析都失败，返回默认值
-        result[self.output_field] = {
-            "question": "图片中显示了什么?", 
-            "answer": "无法解析模型响应"
-        }
+        result[self.output_field] = [{"question": "图片中显示了什么?", 
+                                      "answer": "无法解析模型响应"}]
         return result
 
 class SftFormatter(JsonOperator):
@@ -374,32 +372,36 @@ class SftFormatter(JsonOperator):
             raise ValueError(f"输入数据中缺少图片路径字段: {self.image_path_field}")
         if self.id_field not in json_data:
             raise ValueError(f"输入数据中缺少ID字段: {self.id_field}")
-        
+
+        sft_example = []
         qa_data = json_data[self.qa_field]
+        print(qa_data)
         image_path = json_data[self.image_path_field]
         image_id = json_data[self.id_field]
         
         # 获取图片的相对路径
         relative_path = os.path.basename(image_path)
-        
-        # 构建对话
-        conversations = [
-            {
-                "from": "human", 
-                "value": f"<image>\n{qa_data['question']}"
-            },
-            {
-                "from": "gpt", 
-                "value": qa_data['answer']
-            }
-        ]
-        
-        # 构建SFT示例
-        sft_example = {
-            "id": image_id,
-            "image": f"images/{relative_path}",
-            "conversations": conversations
-        }
+
+        for qa in qa_data:
+            # 构建对话
+            conversations = [
+                {
+                    "from": "human", 
+                    "value": f"<image>\n{qa['question']}"
+                },
+                {
+                    "from": "gpt", 
+                    #"value": qa_data['answer']
+                    "value": qa['answer']
+                }
+            ]
+
+            # 构建SFT示例
+            sft_example.append({
+                "id": image_id,
+                "image": f"images/{relative_path}",
+                "conversations": conversations
+            })
         
         return sft_example
 
@@ -522,9 +524,10 @@ def main():
             
             # 使用pipeline处理数据
             result = pipeline.process(input_data)
-            
+
             # 保存结果
-            saver.write(result)
+            for item in result:
+                saver.write(item)
             
             if "conversations" in result and len(result["conversations"]) > 0:
                 question = result["conversations"][0]["value"].replace("<image>\n", "")

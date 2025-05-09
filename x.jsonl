@@ -1,0 +1,2 @@
+{"id": 0, "image": "images/72cf1cf07cd69f79b9c9ef0eadf32f5e.jpg", "conversations": [{"from": "human", "value": "<image>\n图片中最高的用户年龄分布比例是哪个年龄段？"}, {"from": "gpt", "value": "16-25岁年龄段，占比50.00%"}]}
+{"id": 1, "image": "images/u=409525695,4050029018&fm.jpeg", "conversations": [{"from": "human", "value": "<image>\n图表顶部显示的四个阶段销售金额分别是多少？"}, {"from": "gpt", "value": "图表顶部显示的四个阶段销售金额分别是：项目区域29225.00，成交区域17048.00，签约区域12177.00，并网区域41.67%。"}]}
