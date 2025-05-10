@@ -11,14 +11,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="jsonflow",
+    name="guru4elephant-jsonflow",
     version="0.1.0",
     author="JSONFlow Contributors",
-    author_email="example@example.com",
+    author_email="gongweibao@gmail.com",
     description="A library for processing JSON data with operators and pipelines",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/jsonflow-org/jsonflow",
+    url="https://github.com/guru4elephant/jsonflow",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

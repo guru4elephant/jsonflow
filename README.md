@@ -16,7 +16,7 @@
 ## 安装
 
 ```bash
-pip install jsonflow
+pip install guru4elephant-jsonflow
 ```
 
 ## 快速开始
