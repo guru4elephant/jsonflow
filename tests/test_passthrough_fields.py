@@ -54,7 +54,7 @@ class PassthroughFieldsTest(unittest.TestCase):
     
     def test_passthrough_with_real_operator(self):
         """测试与真实操作符的集成"""
-        pipeline = Pipeline([TextNormalizer()])
+        pipeline = Pipeline([TextNormalizer(lower_case=True)])
         pipeline.set_passthrough_fields(['id'])
         
         input_data = {"id": "12345", "text": "TEST DATA"}

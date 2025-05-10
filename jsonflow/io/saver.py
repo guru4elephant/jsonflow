@@ -46,12 +46,25 @@ class JsonSaver:
             self._file.close()
             self._file = None
     
-    def write(self, json_data: Dict[str, Any]) -> None:
+    def write(self, json_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> None:
+        """
+        写入JSON数据，支持单个JSON对象或JSON列表
+        
+        Args:
+            json_data (dict or list): 要写入的JSON数据，可以是单个对象或列表
+        """
+        if isinstance(json_data, list):
+            for item in json_data:
+                self.write_item(item)
+        else:
+            self.write_item(json_data)
+    
+    def write_item(self, json_data: Dict[str, Any]) -> None:
         """
         写入单个JSON数据
         
         Args:
-            json_data (dict): 要写入的JSON数据
+            json_data (dict): 要写入的单个JSON数据
         """
         json_str = json.dumps(json_data, ensure_ascii=False)
         if self.destination is None:
@@ -66,12 +79,12 @@ class JsonSaver:
                 self._file.write(json_str + '\n')
                 self._file.flush()
     
-    def write_all(self, json_data_list: List[Dict[str, Any]]) -> None:
+    def write_all(self, json_data_list: List[Union[Dict[str, Any], List[Dict[str, Any]]]]) -> None:
         """
         批量写入JSON数据
         
         Args:
-            json_data_list (list): 要写入的JSON数据列表
+            json_data_list (list): 要写入的JSON数据列表，每个元素可以是单个对象或列表
         """
         with self:
             for data in json_data_list:
@@ -87,9 +100,6 @@ class JsonSaver:
             json_data (dict or list): 要保存的JSON数据，可以是单个dict或dict列表
         """
         saver = cls(file_path)
-        if isinstance(json_data, list):
-            saver.write_all(json_data)
-        else:
             saver.write(json_data)
     
     @classmethod
@@ -101,10 +111,6 @@ class JsonSaver:
             json_data (dict or list): 要输出的JSON数据，可以是单个dict或dict列表
         """
         saver = cls(None)
-        if isinstance(json_data, list):
-            for data in json_data:
-                saver.write(data)
-        else:
             saver.write(json_data)
     
     @staticmethod

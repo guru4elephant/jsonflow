@@ -6,13 +6,13 @@ JSON加载器模块
 
 import json
 import sys
-from typing import Iterator, List, Dict, Any, Optional, Union
+from typing import Iterator, List, Dict, Any, Optional, Union, Generator
 
 class JsonLoader:
     """
     从文件或标准输入加载JSON数据
     
-    支持从文件或标准输入逐行加载JSON数据，也支持一次性加载所有数据。
+    支持从文件或标准输入逐行加载JSON数据，也支持一次性加载所有数据或批量加载。
     """
     
     def __init__(self, source: Optional[str] = None):
@@ -32,6 +32,28 @@ class JsonLoader:
             list: JSON数据列表
         """
         return list(self)
+    
+    def load_batch(self, batch_size: int = 100) -> Generator[List[Dict[str, Any]], None, None]:
+        """
+        批量加载指定数量的JSON数据
+        
+        Args:
+            batch_size (int): 每批加载的数据量，默认为100
+            
+        Returns:
+            generator: 生成器，每次返回一批JSON数据列表
+        
+        Yields:
+            list: 每批JSON数据列表
+        """
+        batch = []
+        for item in self:
+            batch.append(item)
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+        if batch:  # 确保最后一批也能被处理，即使不满batch_size
+            yield batch
     
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         """

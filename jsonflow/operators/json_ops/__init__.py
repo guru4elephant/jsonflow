@@ -31,6 +31,10 @@ from jsonflow.operators.json_ops.system_field_ops import (
     CustomFieldAdder, 
     FieldRemover
 )
+from jsonflow.operators.json_ops.collection_ops import (
+    JsonSplitter,
+    JsonAggregator
+)
 
 # 导出所有操作符
 __all__ = [
@@ -53,5 +57,7 @@ __all__ = [
     'TimestampAdder',
     'DateTimeAdder',
     'CustomFieldAdder',
-    'FieldRemover'
+    'FieldRemover',
+    'JsonSplitter',
+    'JsonAggregator'
 ] 
