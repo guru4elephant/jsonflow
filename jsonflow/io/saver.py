@@ -100,7 +100,7 @@ class JsonSaver:
             json_data (dict or list): 要保存的JSON数据，可以是单个dict或dict列表
         """
         saver = cls(file_path)
-            saver.write(json_data)
+        saver.write(json_data)
     
     @classmethod
     def to_stdout(cls, json_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> None:
@@ -111,7 +111,7 @@ class JsonSaver:
             json_data (dict or list): 要输出的JSON数据，可以是单个dict或dict列表
         """
         saver = cls(None)
-            saver.write(json_data)
+        saver.write(json_data)
     
     @staticmethod
     def to_json_string(json_data: Dict[str, Any], pretty: bool = False) -> str:
@@ -127,4 +127,4 @@ class JsonSaver:
         """
         if pretty:
             return json.dumps(json_data, ensure_ascii=False, indent=2)
-        return json.dumps(json_data, ensure_ascii=False) 
+        return json.dumps(json_data, ensure_ascii=False)
