@@ -23,6 +23,7 @@ class ModelInvoker(ModelOperator):
                  response_field: str = "response",
                  system_prompt: Optional[str] = None,
                  api_key: Optional[str] = None,
+                 base_url: Optional[str] = None,
                  max_tokens: Optional[int] = None,
                  temperature: float = 0.7,
                  name: Optional[str] = None, 
@@ -37,6 +38,7 @@ class ModelInvoker(ModelOperator):
             response_field (str): 输出字段名，默认为"response"
             system_prompt (str, optional): 系统提示
             api_key (str, optional): API密钥，如果不提供则从环境变量中获取
+            base_url (str, optional): 模型API的基础URL，用于自定义端点
             max_tokens (int, optional): 生成的最大令牌数
             temperature (float): 采样温度，值越高结果越多样，值越低结果越确定
             name (str, optional): 操作符名称
@@ -53,6 +55,7 @@ class ModelInvoker(ModelOperator):
         self.response_field = response_field
         self.system_prompt = system_prompt
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.base_url = base_url
         self.max_tokens = max_tokens
         self.temperature = temperature
     
@@ -73,46 +76,25 @@ class ModelInvoker(ModelOperator):
         prompt = result[self.prompt_field]
         
         # 调用模型
-        response = self._invoke_model(prompt)
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        response = self.call_llm(messages)
         
         # 将结果存储在JSON中
         result[self.response_field] = response
         return result
     
-    def _invoke_model(self, prompt: str) -> str:
+    def call_llm(self, messages: List[Dict[str, str]]) -> str:
         """
-        调用模型的具体实现
+        使用OpenAI SDK调用大模型
         
-        这个示例方法只是返回一个模拟的响应。在实际应用中，这里会连接到
-        适当的API，如OpenAI, Anthropic, HuggingFace等。
+        此方法接收消息列表格式的输入，使用OpenAI SDK直接调用大模型，
+        支持自定义端点URL。
         
         Args:
-            prompt (str): 发送给模型的提示文本
-            
-        Returns:
-            str: 模型的响应文本
-        """
-        # 这里是模型调用的示例实现
-        # 在实际应用中，会替换为对应模型API的调用
-        try:
-            if self.model.startswith("gpt"):
-                return self._invoke_openai(prompt)
-            else:
-                # 如果不支持该模型，返回一个默认响应
-                return f"Model response to: {prompt[:50]}..."
-        except Exception as e:
-            # 在实际应用中，可能需要更复杂的错误处理
-            print(f"Error invoking model: {e}")
-            return f"Error: {str(e)}"
-    
-    def _invoke_openai(self, prompt: str) -> str:
-        """
-        调用OpenAI模型
-        
-        注意：这是一个示例方法，在实际应用中需要安装openai包并正确配置API密钥。
-        
-        Args:
-            prompt (str): 发送给模型的提示文本
+            messages (List[Dict[str, str]]): 消息列表，格式为[{"role": "...", "content": "..."}]
             
         Returns:
             str: 模型的响应文本
@@ -126,14 +108,14 @@ class ModelInvoker(ModelOperator):
         except ImportError:
             raise ImportError("OpenAI package is not installed. Please install it with 'pip install openai'.")
         
-        # 设置API密钥
-        client = openai.OpenAI(api_key=self.api_key)
-        
-        # 构建消息
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        # 设置API客户端
+        client_kwargs = {"api_key": self.api_key}
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+            
+        print("going to call openai")
+        print(client_kwargs)
+        client = openai.OpenAI(**client_kwargs)
         
         # 调用API
         try:
@@ -142,22 +124,11 @@ class ModelInvoker(ModelOperator):
                 messages=messages,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
+                **self.model_params
             )
             return response.choices[0].message.content
         except Exception as e:
-            raise Exception(f"OpenAI API call failed: {str(e)}")
-    
-    @classmethod
-    def with_system_prompt(cls, model: str, system_prompt: str, **kwargs) -> 'ModelInvoker':
-        """
-        创建一个带有系统提示的ModelInvoker
-        
-        Args:
-            model (str): 模型名称
-            system_prompt (str): 系统提示
-            **kwargs: 其他参数
-            
-        Returns:
-            ModelInvoker: 新的ModelInvoker实例
-        """
-        return cls(model=model, system_prompt=system_prompt, **kwargs) 
+            if self.base_url:
+                raise Exception(f"s failed: {str(e)}")
+            else:
+                raise Exception(f"OpenAI API call failed: {str(e)}")
