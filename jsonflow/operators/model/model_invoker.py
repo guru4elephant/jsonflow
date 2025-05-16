@@ -6,6 +6,7 @@
 
 import os
 import json
+import requests
 from typing import Dict, Any, List, Optional, Union, Callable
 
 from jsonflow.core import ModelOperator
@@ -55,7 +56,7 @@ class ModelInvoker(ModelOperator):
         self.response_field = response_field
         self.system_prompt = system_prompt
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        self.base_url = base_url
+        self.base_url = base_url or "https://api.openai.com/v1/chat/completions"
         self.max_tokens = max_tokens
         self.temperature = temperature
     
@@ -76,10 +77,11 @@ class ModelInvoker(ModelOperator):
         prompt = result[self.prompt_field]
         
         # 调用模型
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": prompt}
-        ]
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
         response = self.call_llm(messages)
         
         # 将结果存储在JSON中
@@ -88,9 +90,9 @@ class ModelInvoker(ModelOperator):
     
     def call_llm(self, messages: List[Dict[str, str]]) -> str:
         """
-        使用OpenAI SDK调用大模型
+        使用requests库调用大模型API
         
-        此方法接收消息列表格式的输入，使用OpenAI SDK直接调用大模型，
+        此方法接收消息列表格式的输入，使用requests直接调用大模型API，
         支持自定义端点URL。
         
         Args:
@@ -100,35 +102,40 @@ class ModelInvoker(ModelOperator):
             str: 模型的响应文本
             
         Raises:
-            ImportError: 如果未安装openai包
             Exception: 如果API调用失败
         """
-        try:
-            import openai
-        except ImportError:
-            raise ImportError("OpenAI package is not installed. Please install it with 'pip install openai'.")
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+
+        data = {
+            'model': self.model,
+            'messages': messages,
+            'temperature': self.temperature
+        }
         
-        # 设置API客户端
-        client_kwargs = {"api_key": self.api_key}
-        if self.base_url:
-            client_kwargs["base_url"] = self.base_url
+        if self.max_tokens:
+            data['max_tokens'] = self.max_tokens
             
-        print("going to call openai")
-        print(client_kwargs)
-        client = openai.OpenAI(**client_kwargs)
-        
-        # 调用API
+        # 添加其他模型参数
+        if hasattr(self, 'model_params') and self.model_params:
+            data.update(self.model_params)
+            
         try:
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                **self.model_params
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            if self.base_url:
-                raise Exception(f"s failed: {str(e)}")
+            print(f"Calling LLM API at: {self.base_url}")
+            response = requests.post(self.base_url, headers=headers, json=data)
+            response.raise_for_status()  # 检查响应状态码
+            
+            result = response.json()
+            if 'choices' in result and len(result['choices']) > 0:
+                return result['choices'][0]['message']['content']
             else:
-                raise Exception(f"OpenAI API call failed: {str(e)}")
+                raise Exception(f"Unexpected API response format: {result}")
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = f"API call failed: {str(e)}"
+            if self.base_url != "https://api.openai.com/v1/chat/completions":
+                error_msg = f"Custom API endpoint call failed: {str(e)}"
+            print(error_msg)
+            raise Exception(error_msg)
